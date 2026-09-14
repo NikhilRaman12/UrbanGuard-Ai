@@ -1,5 +1,8 @@
 import html
+import json
 import os
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 import requests
@@ -18,6 +21,7 @@ except FileNotFoundError:
     configured_api = None
 API_BASE = str(configured_api or os.getenv("URBANGUARD_API_URL", "http://localhost:8000")).rstrip("/")
 API_ROOT = f"{API_BASE}/api/v1"
+SCENARIO_FILE = Path(__file__).resolve().parent.parent / "backend" / "data" / "realistic_scenario.json"
 
 st.markdown(
     """
@@ -74,6 +78,76 @@ def api_request(path: str, method: str = "get", **kwargs: Any) -> Any:
     return response.json()
 
 
+def score_components(record: dict[str, Any]) -> dict[str, float]:
+    components = {
+        "temperature": max(0, min(25, (record.get("temperature_c", 18) - 10) * 1.25)),
+        "standing_water": min(30, record.get("standing_water_hours", 0) / 72 * 30),
+        "organic_waste": min(20, record.get("organic_waste_pct", 0) * 0.2),
+        "sewer_level": min(10, max(0, record.get("sewer_level_pct", 0) - 70) / 3),
+        "ph_deviation": min(5, abs(record.get("ph", 7) - 7) * 2.5),
+        "clog_probability": min(10, record.get("clog_probability", 0) * 0.1),
+    }
+    return {name: round(value, 1) for name, value in components.items()}
+
+
+def severity(pri: float) -> str:
+    return "critical" if pri >= 75 else "high" if pri >= 55 else "moderate" if pri >= 30 else "low"
+
+
+def offline_scenario() -> list[dict[str, Any]]:
+    records = json.loads(SCENARIO_FILE.read_text(encoding="utf-8"))
+    points = []
+    for record in records:
+        components = score_components(record)
+        pri = round(min(100, sum(components.values())), 1)
+        points.append({
+            **record,
+            "pri": pri,
+            "severity": severity(pri),
+            "source": record.get("source", "synthetic_scenario"),
+            "evidence": record.get("report_summary"),
+            "components": components,
+        })
+    return sorted(points, key=lambda point: point["pri"], reverse=True)
+
+
+def offline_event(agent: str, message: str) -> dict[str, Any]:
+    return {
+        "id": len(st.session_state.events) + 1,
+        "agent": agent,
+        "message": message,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def run_offline_action(path: str, label: str, **kwargs: Any) -> None:
+    points = st.session_state.points or offline_scenario()
+    st.session_state.points = points
+    st.session_state.demo_mode = True
+    if path.endswith("trigger-dispatch"):
+        sector_id = kwargs.get("json", {}).get("sector_id")
+        point = next((item for item in points if item["sector_id"] == sector_id), None)
+        if point and point["pri"] >= 30:
+            refs = '["BAV-WS-01", "BAV-OHS-02"]'
+            st.session_state.orders.insert(0, {
+                "id": len(st.session_state.orders) + 1,
+                "sector_id": sector_id,
+                "title": f"Inspect and mitigate vector breeding risk - {point['district']}",
+                "priority": "P1 - same day" if point["pri"] >= 75 else "P2 - within 24 hours",
+                "status": "pending_approval",
+                "protocol_refs": refs,
+            })
+            message = f"Drafted human-review work order for {sector_id}; no action was published."
+            st.session_state.notice = f"Offline demo: dispatch drafted for {sector_id}. Human approval required."
+        else:
+            message = f"Monitored {sector_id}; risk remains below the dispatch threshold."
+            st.session_state.notice = "Offline demo: location remains in monitoring state."
+        st.session_state.events.insert(0, offline_event("Dispatcher & Compliance Copilot", message))
+    else:
+        st.session_state.notice = f"Offline demo: {label.lower()} using synthetic Munich training records."
+        st.session_state.events.insert(0, offline_event("Scenario Data Loader", st.session_state.notice))
+
+
 def load_dashboard() -> None:
     try:
         points, events, orders = (
@@ -84,11 +158,20 @@ def load_dashboard() -> None:
         st.session_state.events = events
         st.session_state.orders = orders
         st.session_state.api_error = None
+        st.session_state.demo_mode = False
     except requests.RequestException as error:
-        st.session_state.api_error = f"API unavailable at {API_BASE}. Start FastAPI or set URBANGUARD_API_URL. ({error})"
+        st.session_state.api_error = f"Live API unavailable at {API_BASE}. Showing offline demo data. ({error})"
+        st.session_state.demo_mode = True
+        if not st.session_state.points:
+            st.session_state.points = offline_scenario()
+            st.session_state.events = [offline_event("Scenario Data Loader", "Loaded deterministic synthetic Munich records for offline demonstration.")]
+            st.session_state.notice = "Offline demo mode: synthetic training scenario loaded. No live municipal action is possible."
 
 
 def run_action(path: str, label: str, method: str = "post", **kwargs: Any) -> None:
+    if st.session_state.get("demo_mode"):
+        run_offline_action(path, label, **kwargs)
+        return
     try:
         result = api_request(path, method, **kwargs)
         st.session_state.notice = f"{label}: {result.get('ingested', result.get('action', 'completed'))}"
@@ -97,7 +180,7 @@ def run_action(path: str, label: str, method: str = "post", **kwargs: Any) -> No
     load_dashboard()
 
 
-for key, default in (("points", []), ("events", []), ("orders", []), ("notice", "System ready - local data boundary active."), ("selected", None), ("api_error", None)):
+for key, default in (("points", []), ("events", []), ("orders", []), ("notice", "System ready - local data boundary active."), ("selected", None), ("api_error", None), ("demo_mode", False)):
     st.session_state.setdefault(key, default)
 load_dashboard()
 
@@ -122,6 +205,8 @@ with actions:
 st.markdown(f'<div class="notice">◉ {html.escape(st.session_state.notice)}</div>', unsafe_allow_html=True)
 if st.session_state.api_error:
     st.error(st.session_state.api_error)
+if st.session_state.demo_mode:
+    st.warning("OFFLINE DEMO MODE: all records are synthetic training data. Verify with authorised field data before any operational decision.")
 
 map_col, activity_col = st.columns([1.4, 0.9], gap="medium")
 with map_col:

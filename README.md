@@ -54,6 +54,8 @@ streamlit run streamlit/streamlit_app.py
 
 For Streamlit Community Cloud, deploy `streamlit/streamlit_app.py` and configure the `URBANGUARD_API_URL` secret with a publicly reachable FastAPI URL. See [streamlit/README.md](streamlit/README.md).
 
+For the stakeholder walkthrough, use the reproducible [demo guide](DEMO_GUIDE.md). It documents the synthetic scenario, expected Munich-area ranking, safe claims, and five-minute presentation flow.
+
 ## API
 
 | Method | Endpoint | Purpose |

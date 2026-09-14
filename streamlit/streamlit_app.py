@@ -12,7 +12,11 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-API_BASE = str(st.secrets.get("URBANGUARD_API_URL", os.getenv("URBANGUARD_API_URL", "http://localhost:8000"))).rstrip("/")
+try:
+    configured_api = st.secrets.get("URBANGUARD_API_URL")
+except FileNotFoundError:
+    configured_api = None
+API_BASE = str(configured_api or os.getenv("URBANGUARD_API_URL", "http://localhost:8000")).rstrip("/")
 API_ROOT = f"{API_BASE}/api/v1"
 
 st.markdown(

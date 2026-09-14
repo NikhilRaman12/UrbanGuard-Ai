@@ -3,9 +3,17 @@ services:
     build: ./backend
     ports: ["8000:8000"]
     volumes: ["./backend/data:/app/data"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
   dashboard:
     build: ./frontend
     ports: ["3000:3000"]
     environment:
       NEXT_PUBLIC_API_URL: http://localhost:8000
-    depends_on: [api]
+    depends_on:
+      api:
+        condition: service_healthy

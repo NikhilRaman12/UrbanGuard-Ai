@@ -13,7 +13,7 @@ from .real_data import weather_observations, munich_report_observations, retriev
 async def lifespan(app):
     store.init_db(); yield
 app=FastAPI(title="UrbanGuard AI", version="1.0.0", lifespan=lifespan)
-app.add_middleware(CORSMiddleware,allow_origins=["http://localhost:3000"],allow_methods=["*"],allow_headers=["*"])
+app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"], allow_methods=["*"], allow_headers=["*"])
 @app.get("/health")
 def health(): return {"status":"healthy","mode":"local-first"}
 @app.post("/api/v1/telemetry/ingest")

@@ -1,0 +1,72 @@
+[
+  {
+    "sector_id": "MUC-ALT-01",
+    "district": "Altstadt-Lehel",
+    "latitude": 48.1371,
+    "longitude": 11.5754,
+    "source": "citizen_report",
+    "temperature_c": 23.4,
+    "standing_water_hours": 18,
+    "organic_waste_pct": 42,
+    "sewer_level_pct": 68,
+    "ph": 7.1,
+    "clog_probability": 38,
+    "report_summary": "Realistic training scenario: pooled water beside a public waste point after rainfall. Synthetic operational record; verify on site."
+  },
+  {
+    "sector_id": "MUC-SCH-02",
+    "district": "Schwabing-Freimann",
+    "latitude": 48.1661,
+    "longitude": 11.5862,
+    "source": "drainage",
+    "temperature_c": 24.8,
+    "standing_water_hours": 58,
+    "organic_waste_pct": 61,
+    "sewer_level_pct": 84,
+    "ph": 6.8,
+    "clog_probability": 79,
+    "report_summary": "Realistic training scenario: drain grate obstruction and prolonged pooled water near a pedestrian route. Synthetic operational record; requires inspection."
+  },
+  {
+    "sector_id": "MUC-GIE-03",
+    "district": "Obergiesing-Fasangarten",
+    "latitude": 48.1152,
+    "longitude": 11.5960,
+    "source": "waste",
+    "temperature_c": 22.7,
+    "standing_water_hours": 6,
+    "organic_waste_pct": 76,
+    "sewer_level_pct": 52,
+    "ph": 7.0,
+    "clog_probability": 22,
+    "report_summary": "Realistic training scenario: repeated organic-waste overflow around a collection point. Synthetic operational record; confirm service history."
+  },
+  {
+    "sector_id": "MUC-BOG-04",
+    "district": "Bogenhausen",
+    "latitude": 48.1541,
+    "longitude": 11.6331,
+    "source": "water_body",
+    "temperature_c": 21.6,
+    "standing_water_hours": 4,
+    "organic_waste_pct": 14,
+    "sewer_level_pct": 44,
+    "ph": 7.3,
+    "clog_probability": 10,
+    "report_summary": "Realistic training scenario: routine water-edge observation with no elevated operational signal. Synthetic operational record."
+  },
+  {
+    "sector_id": "MUC-NEU-05",
+    "district": "Neuhausen-Nymphenburg",
+    "latitude": 48.1551,
+    "longitude": 11.5311,
+    "source": "citizen_report",
+    "temperature_c": 25.1,
+    "standing_water_hours": 83,
+    "organic_waste_pct": 69,
+    "sewer_level_pct": 91,
+    "ph": 6.5,
+    "clog_probability": 88,
+    "report_summary": "Realistic training scenario: recurring standing water, blocked gully, and waste accumulation near public access. Synthetic operational record; priority field check required."
+  }
+]

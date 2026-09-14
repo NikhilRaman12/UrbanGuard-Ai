@@ -1,0 +1,5 @@
+[
+  {"id":"BAV-WS-01","title":"Standing-water response","rule":"Inspect and remove controllable standing water within 24 hours when vector risk is high."},
+  {"id":"BAV-ENV-04","title":"Environmental treatment controls","rule":"Use approved low-impact methods and document treatment near public water bodies."},
+  {"id":"BAV-OHS-02","title":"Sewer crew safety","rule":"Assess confined-space and biological hazards before sewer intervention."}
+]

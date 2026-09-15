@@ -204,7 +204,9 @@ with actions:
 
 st.markdown(f'<div class="notice">◉ {html.escape(st.session_state.notice)}</div>', unsafe_allow_html=True)
 if st.session_state.api_error:
-    st.error(st.session_state.api_error)
+    st.info("Offline demo mode is active. Synthetic Munich training data is ready for the walkthrough.")
+    with st.expander("Connection details", expanded=False):
+        st.caption(st.session_state.api_error)
 if st.session_state.demo_mode:
     st.warning("OFFLINE DEMO MODE: all records are synthetic training data. Verify with authorised field data before any operational decision.")
 

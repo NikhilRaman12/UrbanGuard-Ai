@@ -11,7 +11,14 @@ from .real_data import weather_observations, munich_report_observations, retriev
 
 @asynccontextmanager
 async def lifespan(app):
-    store.init_db(); yield
+    store.init_db()
+    scenario = realistic_scenario()
+    missing = [item for item in scenario if item.sector_id not in store.sector_ids()]
+    if missing:
+        for item in missing:
+            store.add_telemetry(item, calculate_pri(item))
+        store.log("Scenario Data Layer", f"Added {len(missing)} missing Munich reference locations to the stakeholder snapshot; records are synthetic and require field verification.")
+    yield
 app=FastAPI(title="UrbanGuard AI", version="1.0.0", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"], allow_methods=["*"], allow_headers=["*"])
 @app.get("/health")
@@ -26,6 +33,9 @@ def heatmap():
         telemetry = TelemetryIn.model_validate_json(row["payload"])
         points.append(HeatPoint(sector_id=row["sector_id"], district=row["district"], latitude=row["latitude"], longitude=row["longitude"], pri=row["pri"], severity=severity(row["pri"]), source=row["source"], observed_at=row["observed_at"], evidence=store.evidence_for(row), components=risk_components(telemetry)))
     return points
+@app.get("/api/v1/dashboard/summary")
+def dashboard_summary():
+    return store.summary()
 @app.post("/api/v1/data/refresh-weather", response_model=DataRefreshResult)
 def refresh_weather():
     """Fetch real public weather data; never manufacture municipal measurements."""

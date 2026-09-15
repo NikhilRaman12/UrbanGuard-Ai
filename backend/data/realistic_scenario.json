@@ -68,5 +68,47 @@
     "ph": 6.5,
     "clog_probability": 88,
     "report_summary": "Realistic training scenario: recurring standing water, blocked gully, and waste accumulation near public access. Synthetic operational record; priority field check required."
+  },
+  {
+    "sector_id": "MUC-SEN-06",
+    "district": "Sendling",
+    "latitude": 48.1183,
+    "longitude": 11.4897,
+    "source": "munich_open311",
+    "temperature_c": 20.9,
+    "standing_water_hours": 31,
+    "organic_waste_pct": 48,
+    "sewer_level_pct": 77,
+    "ph": 7.2,
+    "clog_probability": 57,
+    "report_summary": "Realistic training scenario: anonymised public-service report clustered with recent rain exposure near a school route. Synthetic record; verify drainage condition before dispatch."
+  },
+  {
+    "sector_id": "MUC-RAM-07",
+    "district": "Ramersdorf-Perlach",
+    "latitude": 48.1098,
+    "longitude": 11.6247,
+    "source": "open_meteo",
+    "temperature_c": 19.8,
+    "standing_water_hours": 12,
+    "organic_waste_pct": 29,
+    "sewer_level_pct": 63,
+    "ph": 7.0,
+    "clog_probability": 18,
+    "report_summary": "Public-weather-derived exposure proxy for a Munich reference point. Synthetic training record; precipitation does not confirm standing water or pathogen presence."
+  },
+  {
+    "sector_id": "MUC-MOO-08",
+    "district": "Moosach",
+    "latitude": 48.1795,
+    "longitude": 11.5048,
+    "source": "drainage",
+    "temperature_c": 21.7,
+    "standing_water_hours": 44,
+    "organic_waste_pct": 35,
+    "sewer_level_pct": 81,
+    "ph": 6.9,
+    "clog_probability": 68,
+    "report_summary": "Realistic training scenario: drainage inspection signal indicates slow flow after rainfall near a transit interchange. Synthetic operational record; field crew confirmation required."
   }
 ]

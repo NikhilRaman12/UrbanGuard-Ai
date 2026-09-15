@@ -48,6 +48,9 @@ st.markdown(
     .panel { background:var(--panel); border:1px solid var(--line); padding:0; }
     .panel-title { border-bottom:1px solid var(--line); padding:16px 18px; display:flex; justify-content:space-between; align-items:center; color:#b9cac1; font:11px 'DM Mono',monospace; }
     .panel-title b { color:#70837b; font-size:10px; font-weight:400; }
+    .metric-strip { display:grid; grid-template-columns:repeat(4,1fr); gap:1px; background:var(--line); border:1px solid var(--line); margin:0 0 18px; }
+    .metric { background:#0b1714; padding:15px 16px; }.metric strong { display:block; color:var(--ink); font:800 24px Manrope,sans-serif; }.metric span { color:#80958b; font:10px 'DM Mono',monospace; text-transform:uppercase; letter-spacing:.5px; }
+    .provenance { color:#91a69c; font:11px/1.6 'DM Mono',monospace; padding:12px 0 18px; }
     .map-surface { min-height:305px; position:relative; overflow:hidden; background-color:#10221d; background-image:linear-gradient(#1d332c 1px,transparent 1px),linear-gradient(90deg,#1d332c 1px,transparent 1px); background-size:52px 52px; padding:24px; }
     .map-surface:after { content:''; position:absolute; width:120%; height:58px; top:47%; left:-8%; background:#143b39; transform:rotate(-10deg); opacity:.8; }
     .map-empty { min-height:255px; display:grid; place-items:center; text-align:center; color:#71857c; font:12px 'DM Mono',monospace; position:relative; z-index:2; }
@@ -120,6 +123,23 @@ def offline_event(agent: str, message: str) -> dict[str, Any]:
     }
 
 
+def offline_summary(points: list[dict[str, Any]]) -> dict[str, Any]:
+    sources: dict[str, int] = {}
+    for point in points:
+        source = point.get("source", "synthetic_scenario")
+        sources[source] = sources.get(source, 0) + 1
+    return {
+        "locations": len(points),
+        "critical": sum(point["pri"] >= 75 for point in points),
+        "high": sum(55 <= point["pri"] < 75 for point in points),
+        "moderate": sum(30 <= point["pri"] < 55 for point in points),
+        "low": sum(point["pri"] < 30 for point in points),
+        "source_counts": sources,
+        "latest_observation": datetime.now(timezone.utc).isoformat(),
+        "data_mode": "synthetic_training_snapshot",
+    }
+
+
 def run_offline_action(path: str, label: str, **kwargs: Any) -> None:
     points = st.session_state.points or offline_scenario()
     st.session_state.points = points
@@ -150,13 +170,14 @@ def run_offline_action(path: str, label: str, **kwargs: Any) -> None:
 
 def load_dashboard() -> None:
     try:
-        points, events, orders = (
+        points, events, orders, summary = (
             api_request(path)
-            for path in ("risks/heatmap", "activity", "work-orders")
+            for path in ("risks/heatmap", "activity", "work-orders", "dashboard/summary")
         )
         st.session_state.points = points
         st.session_state.events = events
         st.session_state.orders = orders
+        st.session_state.summary = summary
         st.session_state.api_error = None
         st.session_state.demo_mode = False
     except requests.RequestException as error:
@@ -164,6 +185,7 @@ def load_dashboard() -> None:
         st.session_state.demo_mode = True
         if not st.session_state.points:
             st.session_state.points = offline_scenario()
+            st.session_state.summary = offline_summary(st.session_state.points)
             st.session_state.events = [offline_event("Scenario Data Loader", "Loaded deterministic synthetic Munich records for offline demonstration.")]
             st.session_state.notice = "Offline demo mode: synthetic training scenario loaded. No live municipal action is possible."
 
@@ -180,7 +202,7 @@ def run_action(path: str, label: str, method: str = "post", **kwargs: Any) -> No
     load_dashboard()
 
 
-for key, default in (("points", []), ("events", []), ("orders", []), ("notice", "System ready - local data boundary active."), ("selected", None), ("api_error", None), ("demo_mode", False)):
+for key, default in (("points", []), ("events", []), ("orders", []), ("summary", {}), ("notice", "System ready - local data boundary active."), ("selected", None), ("api_error", None), ("demo_mode", False)):
     st.session_state.setdefault(key, default)
 load_dashboard()
 
@@ -209,6 +231,13 @@ if st.session_state.api_error:
         st.caption(st.session_state.api_error)
 if st.session_state.demo_mode:
     st.warning("OFFLINE DEMO MODE: all records are synthetic training data. Verify with authorised field data before any operational decision.")
+
+summary = st.session_state.summary or offline_summary(st.session_state.points)
+source_labels = ", ".join(f"{name.replace('_', ' ')} ({count})" for name, count in summary.get("source_counts", {}).items())
+st.markdown(
+    f'<div class="metric-strip"><div class="metric"><strong>{summary.get("locations", 0)}</strong><span>reference locations</span></div><div class="metric"><strong>{summary.get("critical", 0) + summary.get("high", 0)}</strong><span>priority inspections</span></div><div class="metric"><strong>{summary.get("moderate", 0)}</strong><span>watch list</span></div><div class="metric"><strong>{len(summary.get("source_counts", {}))}</strong><span>evidence streams</span></div></div><div class="provenance">DATA LINEAGE · {html.escape(summary.get("data_mode", "unknown").replace("_", " "))} · {html.escape(source_labels)}<br>Freshness: {html.escape(str(summary.get("latest_observation", "not available")))} · Risk scores are triage signals, not diagnoses.</div>',
+    unsafe_allow_html=True,
+)
 
 map_col, activity_col = st.columns([1.4, 0.9], gap="medium")
 with map_col:

@@ -67,6 +67,10 @@ For Streamlit Community Cloud, deploy `streamlit/streamlit_app.py` and configure
 
 For the stakeholder walkthrough, use the reproducible [demo guide](DEMO_GUIDE.md). It documents the synthetic scenario, expected Munich-area ranking, safe claims, and five-minute presentation flow.
 
+For a presentation-ready summary of the design, use [DESIGN_DECK.md](DESIGN_DECK.md). It is a markdown slide deck (Marp-compatible) covering the problem, architecture, risk model, multimodal pipeline, live-run results, governance, and roadmap, and can be exported to PowerPoint.
+
+For a full pitch that explains the code end-to-end **and** covers the proposed Google Cloud target architecture (Google ADK agents, Gemini, Vertex AI Agent Engine), use [PITCH_DECK.md](PITCH_DECK.md). Its Google Cloud slides are explicitly labelled as proposed/roadmap, since the running code is deterministic and does not call Gemini or ADK yet.
+
 ## API
 
 | Method | Endpoint | Purpose |
@@ -82,12 +86,18 @@ For the stakeholder walkthrough, use the reproducible [demo guide](DEMO_GUIDE.md
 | GET | `/api/v1/work-orders` | Review generated work orders |
 | GET | `/api/v1/work-orders/{id}` | Read a single work order |
 | POST | `/api/v1/work-orders/{id}/decision` | Record a human `approve`/`reject` decision with reviewer identity |
+| POST | `/api/v1/evidence/image` | Ingest photo evidence and extract visual triage proxies |
+| POST | `/api/v1/evidence/text` | Map a free-text report onto the sanitation taxonomy |
+| GET | `/api/v1/evidence/{sector_id}` | List stored evidence for a sector |
+| POST | `/api/v1/evidence/fuse/{sector_id}` | Fuse telemetry + image + text into one explainable score |
 | GET | `/api/v1/risks/export.csv` | Export the current triage snapshot as CSV |
 | GET | `/health` | Service health, active data mode, and pending approvals |
 
 ## Architecture and safety model
 
 `backend/app/agents.py` implements an async native-Python agent graph. Its output is structured, deterministic, and logged: this is intentionally safer than allowing a model to autonomously issue municipal instructions. The compliance copilot applies versioned local protocol excerpts from `backend/data/regulations.json`. An optional `OLLAMA_BASE_URL` can be configured later for local wording assistance, but raw telemetry never needs to leave the deployment boundary.
+
+`backend/app/multimodal.py` adds a second evidence layer. `POST /api/v1/evidence/image` extracts deterministic colour/texture triage proxies (water-like and waste-like pixel fractions) from a citizen or crew photo; `POST /api/v1/evidence/text` maps free text onto a fixed sanitation taxonomy (standing water, waste, sewage, drainage blockage, odour, rodents, contamination). `POST /api/v1/evidence/fuse/{sector_id}` combines the telemetry PRI (60%), the image score (25%) and the text score (15%) into one explainable signal. These are transparent triage proxies—not classifiers and not diagnoses—and all analysis stays on-premise.
 
 The PRI is a transparent 0–100 score based on temperature, standing-water hours, organic waste, sewer level, pH deviation, and clog probability. It is a decision-support signal—not an epidemiological diagnosis.
 

@@ -1,16 +1,18 @@
 import csv
 import io
+import json
 import os
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
-from .models import TelemetryIn, HeatPoint, DispatchRequest, DataRefreshResult, OrderDecision
+from .models import TelemetryIn, HeatPoint, DispatchRequest, DataRefreshResult, OrderDecision, TextEvidenceIn, EvidenceResult, FusionResult
 from .risk import calculate_pri, risk_components, severity
 from . import store
 from .simulation import readings
 from .scenario_data import realistic_scenario
 from .agents import run_dispatch
+from .multimodal import analyse_image, analyse_text, fuse_modalities
 from .real_data import weather_observations, munich_report_observations, retrieved_at
 
 DEFAULT_CORS_ORIGINS = "http://localhost:3000,http://127.0.0.1:3000"
@@ -115,5 +117,42 @@ def decide_work_order(order_id: int, decision: OrderDecision):
     return dict(store.order_by_id(order_id))
 @app.get("/api/v1/activity")
 def activity(): return [dict(x) for x in store.activities()]
+
+def evidence_response(row):
+    return EvidenceResult(id=row["id"], sector_id=row["sector_id"], modality=row["modality"], score=row["score"], summary=row["caption"] or "", features=json.loads(row["features"]), observed_at=row["observed_at"])
+
+@app.post("/api/v1/evidence/image", response_model=EvidenceResult)
+async def evidence_image(file: UploadFile = File(...), sector_id: str = Form(...), caption: str = Form(""), latitude: float | None = Form(None), longitude: float | None = Form(None)):
+    """Ingest a photo as visual triage evidence. Inference stays inside the deployment boundary."""
+    data = await file.read()
+    if not data: raise HTTPException(400, "Empty image upload")
+    if len(data) > 8_000_000: raise HTTPException(413, "Image exceeds the 8 MB evidence limit")
+    try: features = analyse_image(data)
+    except ValueError as error: raise HTTPException(415, str(error))
+    score = max(features["visual_water_score"], features["visual_waste_score"])
+    evidence_id = store.add_evidence(sector_id, "image", latitude, longitude, caption or (file.filename or "image evidence"), features, score)
+    store.log("Multimodal Evidence Agent", f"Analysed image evidence for {sector_id}: visual water {features['visual_water_score']}, waste {features['visual_waste_score']}, quality {features['quality']}.")
+    return evidence_response(store.evidence_by_id(evidence_id))
+@app.post("/api/v1/evidence/text", response_model=EvidenceResult)
+def evidence_text(payload: TextEvidenceIn):
+    features = analyse_text(payload.text)
+    score = features["text_signal_score"]
+    evidence_id = store.add_evidence(payload.sector_id, "text", payload.latitude, payload.longitude, payload.text[:280], features, score)
+    categories = ", ".join(features["categories"]) or "none"
+    store.log("Multimodal Evidence Agent", f"Analysed text evidence for {payload.sector_id}: signal {score}, categories {categories}.")
+    return evidence_response(store.evidence_by_id(evidence_id))
+@app.get("/api/v1/evidence/{sector_id}", response_model=list[EvidenceResult])
+def evidence_list(sector_id: str):
+    return [evidence_response(row) for row in store.evidence_by_sector(sector_id)]
+@app.post("/api/v1/evidence/fuse/{sector_id}", response_model=FusionResult)
+def evidence_fuse(sector_id: str):
+    """Fuse telemetry PRI with the latest image and text evidence into one explainable score."""
+    telemetry_pri = next((row["pri"] for row in store.latest_points() if row["sector_id"] == sector_id), None)
+    image_row = next((row for row in store.evidence_by_sector(sector_id) if row["modality"] == "image"), None)
+    text_row = next((row for row in store.evidence_by_sector(sector_id) if row["modality"] == "text"), None)
+    if telemetry_pri is None and image_row is None and text_row is None: raise HTTPException(404, "No telemetry or evidence exists for this sector")
+    fusion = fuse_modalities(telemetry_pri, image_row["score"] if image_row else None, text_row["score"] if text_row else None)
+    store.log("Evidence Fusion Agent", f"Fused modalities for {sector_id}: score {fusion['score']}. {fusion['explanation']}")
+    return FusionResult(sector_id=sector_id, **fusion)
 @app.get("/api/v1/work-orders")
 def work_orders(): return [dict(x) for x in store.orders()]

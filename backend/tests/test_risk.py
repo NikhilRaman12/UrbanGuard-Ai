@@ -28,7 +28,7 @@ def test_components_clamp_at_bounds():
     assert risk_components(reading(temperature_c=60))["temperature"] == 25
     assert risk_components(reading(temperature_c=-10))["temperature"] == 0
     assert risk_components(reading(ph=7))["ph_deviation"] == 0
-    assert risk_components(reading(standing_water_hours=1000))["standing_water"] == 30
+    assert risk_components(reading(standing_water_hours=720))["standing_water"] == 30
 
 
 def test_severity_thresholds():

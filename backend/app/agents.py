@@ -16,7 +16,7 @@ async def run_dispatch(sector_id: str):
     priority="P1 — same day" if pri >= 75 else "P2 — within 24 hours"
     title=f"Inspect and mitigate vector breeding risk — {point['district']}"
     store.log("Dispatcher & Compliance Copilot", f"Drafted {priority} work order; applied {', '.join(refs)}. Awaiting human approval.")
-    store.create_order(sector_id,title,priority,refs)
+    order_id=store.create_order(sector_id,title,priority,refs)
     advisories={
       "de":"Hinweis: Erhöhtes Risiko durch stehendes Wasser in Ihrem Bezirk. Bitte melden Sie Ansammlungen und vermeiden Sie Kontakt mit belastetem Wasser.",
       "en":"Advisory: Elevated standing-water risk in your district. Report pooled water and avoid contact with contaminated water.",
@@ -24,4 +24,4 @@ async def run_dispatch(sector_id: str):
       "it":"Avviso: rischio elevato di acqua stagnante nel quartiere. Segnalate i ristagni d'acqua."
     }
     store.log("Public Communication Agent", "Prepared DE/EN/FR/IT citizen advisories for human review; nothing published automatically.")
-    return {"sector_id":sector_id,"pri":pri,"action":"dispatch_drafted","work_order":{"title":title,"priority":priority,"status":"pending_approval","protocol_refs":refs},"advisories":advisories}
+    return {"sector_id":sector_id,"pri":pri,"action":"dispatch_drafted","work_order":{"id":order_id,"title":title,"priority":priority,"status":"pending_approval","protocol_refs":refs},"advisories":advisories}

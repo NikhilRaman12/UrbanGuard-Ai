@@ -44,9 +44,10 @@ Scores are transparent weighted indicators, not probabilities of infection.
 5. Explain that the highest score is driven by standing water, sewer level, waste, and clog probability.
 6. Click **DRAFT REVIEWED DISPATCH**.
 7. Show the generated work order with `pending approval` status and protocol references.
-8. Explain the safety boundary: the system drafts a recommendation, but an authorised official must approve it.
-9. Select **Bogenhausen** to demonstrate that a low-risk area remains in monitoring rather than triggering unnecessary work.
-10. Close with the deployment path: connect authorised drainage, waste, inspection, weather, and Open311-style feeds while retaining the same audit and approval controls.
+8. Enter the reviewing officer name and click **APPROVE** (or **REJECT**) to record the human decision; the audit feed logs the reviewer and timestamp.
+9. Explain the safety boundary: the system drafts a recommendation, but an authorised official must approve it.
+10. Select **Bogenhausen** to demonstrate that a low-risk area remains in monitoring rather than triggering unnecessary work.
+11. Close with the deployment path: connect authorised drainage, waste, inspection, weather, and Open311-style feeds while retaining the same audit and approval controls.
 
 ## Stakeholder value
 

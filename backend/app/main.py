@@ -1,13 +1,24 @@
+import csv
+import io
+import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from .models import TelemetryIn, HeatPoint, DispatchRequest, DataRefreshResult
+from fastapi.responses import Response
+from .models import TelemetryIn, HeatPoint, DispatchRequest, DataRefreshResult, OrderDecision
 from .risk import calculate_pri, risk_components, severity
 from . import store
 from .simulation import readings
 from .scenario_data import realistic_scenario
 from .agents import run_dispatch
 from .real_data import weather_observations, munich_report_observations, retrieved_at
+
+DEFAULT_CORS_ORIGINS = "http://localhost:3000,http://127.0.0.1:3000"
+
+def cors_origins():
+    configured = os.getenv("CORS_ORIGINS", DEFAULT_CORS_ORIGINS)
+    origins = [origin.strip() for origin in configured.split(",") if origin.strip()]
+    return origins or ["*"]
 
 @asynccontextmanager
 async def lifespan(app):
@@ -16,16 +27,27 @@ async def lifespan(app):
     missing = [item for item in scenario if item.sector_id not in store.sector_ids()]
     if missing:
         for item in missing:
-            store.add_telemetry(item, calculate_pri(item))
+            store.add_telemetry(item, calculate_pri(item), synthetic=True)
         store.log("Scenario Data Layer", f"Added {len(missing)} missing Munich reference locations to the stakeholder snapshot; records are synthetic and require field verification.")
     yield
-app=FastAPI(title="UrbanGuard AI", version="1.0.0", lifespan=lifespan)
-app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"], allow_methods=["*"], allow_headers=["*"])
+app=FastAPI(title="UrbanGuard AI", version="1.1.0", lifespan=lifespan)
+app.add_middleware(CORSMiddleware, allow_origins=cors_origins(), allow_methods=["*"], allow_headers=["*"])
 @app.get("/health")
-def health(): return {"status":"healthy","mode":"local-first"}
+def health():
+    summary = store.summary()
+    return {
+        "status": "healthy",
+        "mode": "local-first",
+        "version": app.version,
+        "data_mode": summary["data_mode"],
+        "locations": summary["locations"],
+        "pending_approval": summary["pending_approval"],
+    }
+def store_reading(t: TelemetryIn, synthetic: bool = False):
+    pri=calculate_pri(t); store.add_telemetry(t,pri,synthetic=synthetic); store.log("Ingestion Engine",f"Received {t.source} telemetry for {t.sector_id}; calculated PRI {pri}."); return {"accepted":True,"pri":pri,"severity":severity(pri)}
 @app.post("/api/v1/telemetry/ingest")
 def ingest(t:TelemetryIn):
-    pri=calculate_pri(t); store.add_telemetry(t,pri); store.log("Ingestion Engine",f"Received {t.source} telemetry for {t.sector_id}; calculated PRI {pri}."); return {"accepted":True,"pri":pri,"severity":severity(pri)}
+    return store_reading(t, synthetic=False)
 @app.get("/api/v1/risks/heatmap",response_model=list[HeatPoint])
 def heatmap():
     points = []
@@ -33,6 +55,16 @@ def heatmap():
         telemetry = TelemetryIn.model_validate_json(row["payload"])
         points.append(HeatPoint(sector_id=row["sector_id"], district=row["district"], latitude=row["latitude"], longitude=row["longitude"], pri=row["pri"], severity=severity(row["pri"]), source=row["source"], observed_at=row["observed_at"], evidence=store.evidence_for(row), components=risk_components(telemetry)))
     return points
+@app.get("/api/v1/risks/export.csv")
+def export_heatmap_csv():
+    """Download the current triage snapshot as CSV for offline review and FOI requests."""
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(["sector_id", "district", "latitude", "longitude", "pri", "severity", "source", "observed_at", "evidence"])
+    for point in heatmap():
+        writer.writerow([point.sector_id, point.district, point.latitude, point.longitude, point.pri, point.severity, point.source, point.observed_at.isoformat(), point.evidence or ""])
+    filename = f"urbanguard-risk-snapshot-{retrieved_at().date().isoformat()}.csv"
+    return Response(content=buffer.getvalue(), media_type="text/csv", headers={"Content-Disposition": f'attachment; filename="{filename}"'})
 @app.get("/api/v1/dashboard/summary")
 def dashboard_summary():
     return store.summary()
@@ -54,18 +86,33 @@ def refresh_munich_reports():
 @app.post("/api/v1/simulation/tick")
 def tick():
     output=[]
-    for item in readings(): output.append(ingest(item))
+    for item in readings(): output.append(store_reading(item, synthetic=True))
     return {"simulated":len(output),"results":output}
 @app.post("/api/v1/data/load-realistic-scenario", response_model=DataRefreshResult)
 def load_realistic_scenario():
     observations = realistic_scenario()
-    for item in observations: store.add_telemetry(item, calculate_pri(item))
+    for item in observations: store.add_telemetry(item, calculate_pri(item), synthetic=True)
     store.log("Scenario Data Loader", f"Loaded {len(observations)} deterministic Munich sanitation training records; all are synthetic and require field verification.")
     return DataRefreshResult(ingested=len(observations), provider="UrbanGuard realistic training scenario", retrieved_at=retrieved_at(), limitation="This scenario is synthetic, based on plausible municipal conditions, and must never be treated as a live municipal record or used for operational action without verification.")
 @app.post("/api/v1/agents/trigger-dispatch")
 async def dispatch(request:DispatchRequest):
     try: return await run_dispatch(request.sector_id)
     except ValueError as e: raise HTTPException(404,str(e))
+@app.get("/api/v1/work-orders/{order_id}")
+def work_order(order_id: int):
+    row = store.order_by_id(order_id)
+    if row is None: raise HTTPException(404, "Work order not found")
+    return dict(row)
+@app.post("/api/v1/work-orders/{order_id}/decision")
+def decide_work_order(order_id: int, decision: OrderDecision):
+    row = store.order_by_id(order_id)
+    if row is None: raise HTTPException(404, "Work order not found")
+    if row["status"] != "pending_approval": raise HTTPException(409, f"Work order is already {row['status']}")
+    store.decide_order(order_id, decision.decision, decision.actor)
+    verb = "approved" if decision.decision == "approve" else "rejected"
+    note = f" Note: {decision.note}" if decision.note else ""
+    store.log("Human Review", f"Work order #{order_id} for {row['sector_id']} {verb} by {decision.actor}.{note}")
+    return dict(store.order_by_id(order_id))
 @app.get("/api/v1/activity")
 def activity(): return [dict(x) for x in store.activities()]
 @app.get("/api/v1/work-orders")

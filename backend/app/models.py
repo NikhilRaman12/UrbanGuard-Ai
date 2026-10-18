@@ -38,3 +38,8 @@ class DataRefreshResult(BaseModel):
 
 class DispatchRequest(BaseModel):
     sector_id: str
+
+class OrderDecision(BaseModel):
+    decision: Literal["approve", "reject"]
+    actor: str = Field(min_length=1, max_length=120, examples=["ops.lead@muenchen.de"])
+    note: str | None = Field(default=None, max_length=280)

@@ -44,6 +44,17 @@ The dashboard includes **Refresh real weather**, which fetches current temperatu
 
 When a live city feed is not available, **Load realistic scenario** loads a deterministic, clearly synthetic Munich sanitation scenario. It lets teams exercise the risk ranking, audit trail, work-order drafting, and human-approval flow without misrepresenting the data as a live municipal record.
 
+The dashboard separates **inspection** from **dispatch**: selecting a map location opens its evidence panel, and a work order is only drafted when you press **Draft reviewed dispatch**. Drafted orders start as `pending_approval` and must be explicitly **approved** or **rejected** against a named reviewing officer before the status changes. A **data-lineage** strip reports whether the current snapshot is a live connector, synthetic training data, or a mixture, and the risk table can be downloaded as CSV.
+
+### Configuration
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `NEXT_PUBLIC_API_URL` | `http://localhost:8000` | Frontend → API base URL |
+| `CORS_ORIGINS` | `http://localhost:3000,http://127.0.0.1:3000` | Comma-separated browser origins allowed to call the API |
+| `MUNICH_OPEN311_URL` | machmuenchenbesser.de feed | City Open311 report source |
+| `URBANGUARD_API_URL` | `http://localhost:8000` | Streamlit → API base URL |
+
 ### Streamlit shareable dashboard
 
 An isolated Streamlit client is included for a quick public demo. It uses the same FastAPI service and preserves the explainable scoring, evidence limitations, audit feed, and human-approval workflow.
@@ -69,6 +80,10 @@ For the stakeholder walkthrough, use the reproducible [demo guide](DEMO_GUIDE.md
 | POST | `/api/v1/data/load-realistic-scenario` | Load deterministic, synthetic training records for a full workflow demonstration |
 | GET | `/api/v1/activity` | Read the agent audit trail |
 | GET | `/api/v1/work-orders` | Review generated work orders |
+| GET | `/api/v1/work-orders/{id}` | Read a single work order |
+| POST | `/api/v1/work-orders/{id}/decision` | Record a human `approve`/`reject` decision with reviewer identity |
+| GET | `/api/v1/risks/export.csv` | Export the current triage snapshot as CSV |
+| GET | `/health` | Service health, active data mode, and pending approvals |
 
 ## Architecture and safety model
 
@@ -80,15 +95,26 @@ The PRI is a transparent 0–100 score based on temperature, standing-water hour
 
 - **Local by design:** SQLite, rule retrieval, agent orchestration, and optional Ollama inference run within the municipal-controlled environment.
 - **Data minimisation:** telemetry schema excludes names, addresses, device identifiers tied to people, and citizen-report free text is capped and treated as operational evidence.
-- **Human approval:** dispatch tickets begin as `pending_approval`; no crew action or external notification is sent automatically.
+- **Human approval:** dispatch tickets begin as `pending_approval`; no crew action or external notification is sent automatically. Approve/reject decisions are recorded with the reviewer identity and timestamp.
 - **Auditability:** each workflow step writes a timestamped activity event; risk formulas and protocol references are inspectable.
 - **Retention:** this demo has no production retention policy. A real deployment must configure purpose-limited retention, access controls, DPIA, data-subject processes, and regional hosting/contracts.
+
+## Tests and continuous integration
+
+```bash
+cd backend
+pip install -r requirements.txt -r requirements-dev.txt
+pytest
+```
+
+The suite covers the PRI formula and severity thresholds, the SQLite store (including synthetic-source lineage and the work-order decision workflow), the agent graph, and the HTTP API surface. GitHub Actions runs the backend tests and builds the Next.js dashboard on every push and pull request.
 
 ## Project layout
 
 ```text
-backend/       FastAPI API, SQLite store, simulation, agents, local regulations
+backend/       FastAPI API, SQLite store, simulation, agents, local regulations, tests
 frontend/      Next.js 14 App Router command dashboard
 streamlit/     Shareable Streamlit command dashboard
+.github/       CI workflow (backend tests + frontend build)
 docker-compose.yml
 ```

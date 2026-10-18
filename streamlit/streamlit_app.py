@@ -202,7 +202,28 @@ def run_action(path: str, label: str, method: str = "post", **kwargs: Any) -> No
     load_dashboard()
 
 
-for key, default in (("points", []), ("events", []), ("orders", []), ("summary", {}), ("notice", "System ready - local data boundary active."), ("selected", None), ("api_error", None), ("demo_mode", False)):
+def record_decision(order_id: int, decision: str) -> None:
+    actor = (st.session_state.get("reviewer") or "").strip()
+    if not actor:
+        st.session_state.notice = "Enter the reviewing officer name or staff id before approving or rejecting."
+        return
+    verb = "approved" if decision == "approve" else "rejected"
+    if st.session_state.get("demo_mode"):
+        for order in st.session_state.orders:
+            if order.get("id") == order_id:
+                order["status"] = verb
+                order["decided_by"] = actor
+        st.session_state.notice = f"Offline demo: work order #{order_id} {verb}. No live action was sent."
+        return
+    try:
+        api_request(f"work-orders/{order_id}/decision", "post", json={"decision": decision, "actor": actor})
+        st.session_state.notice = f"Work order #{order_id} {verb} by {actor}."
+    except requests.RequestException as error:
+        st.session_state.notice = f"Decision failed: {error}"
+    load_dashboard()
+
+
+for key, default in (("points", []), ("events", []), ("orders", []), ("summary", {}), ("notice", "System ready - local data boundary active."), ("selected", None), ("api_error", None), ("demo_mode", False), ("reviewer", "")):
     st.session_state.setdefault(key, default)
 load_dashboard()
 
@@ -277,10 +298,22 @@ with activity_col:
     st.markdown('</div></div>', unsafe_allow_html=True)
 
 st.markdown('<div class="panel" style="margin-top:18px"><div class="panel-title"><span>▤ &nbsp; WORK ORDER & ALERT MANAGER</span><b>HUMAN APPROVAL REQUIRED</b></div>', unsafe_allow_html=True)
+st.text_input("Reviewing officer", key="reviewer", placeholder="name or staff id (required for decisions)", label_visibility="collapsed")
 if st.session_state.orders:
     for order in st.session_state.orders:
         refs = html.escape(order.get("protocol_refs", ""))
-        st.markdown(f'<div class="order"><strong>{html.escape(order.get("title", "Untitled work order"))}</strong><p>{html.escape(order.get("sector_id", ""))} · {html.escape(order.get("priority", ""))} · Protocol refs: {refs}</p><span class="status">{html.escape(order.get("status", "pending approval").replace("_", " "))}</span></div>', unsafe_allow_html=True)
+        decided_by = order.get("decided_by")
+        decided = f" · decision recorded by {html.escape(str(decided_by))}" if decided_by else ""
+        status_label = html.escape(str(order.get("status", "pending approval")).replace("_", " "))
+        st.markdown(f'<div class="order"><strong>{html.escape(order.get("title", "Untitled work order"))}</strong><p>{html.escape(order.get("sector_id", ""))} · {html.escape(order.get("priority", ""))} · Protocol refs: {refs}{decided}</p><span class="status">{status_label}</span></div>', unsafe_allow_html=True)
+        if order.get("status") == "pending_approval":
+            approve_col, reject_col, _ = st.columns([1, 1, 4])
+            with approve_col:
+                if st.button("✔ APPROVE", key=f"approve-{order.get('id')}", use_container_width=True):
+                    record_decision(order.get("id"), "approve")
+            with reject_col:
+                if st.button("✖ REJECT", key=f"reject-{order.get('id')}", use_container_width=True):
+                    record_decision(order.get("id"), "reject")
 else:
     st.markdown('<div class="map-empty">Draft a high-risk dispatch to create an auditable work order.</div>', unsafe_allow_html=True)
 st.markdown('</div>', unsafe_allow_html=True)

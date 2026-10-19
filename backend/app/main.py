@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
+from pydantic import BaseModel
 from .models import TelemetryIn, HeatPoint, DispatchRequest, DataRefreshResult, OrderDecision
 from .risk import calculate_pri, risk_components, severity
 from . import store
@@ -12,6 +13,14 @@ from .simulation import readings
 from .scenario_data import realistic_scenario
 from .agents import run_dispatch
 from .real_data import weather_observations, munich_report_observations, retrieved_at
+from .gemini_agent import generate_risk_narrative, generate_multilingual_advisories, chat_with_urbanguard, google_services_status
+
+# ── Pydantic models for Google AI endpoints ────────────────────────────────
+class AIAnalyzeRequest(BaseModel):
+    sector_id: str
+
+class AIChatRequest(BaseModel):
+    question: str
 
 DEFAULT_CORS_ORIGINS = "http://localhost:3000,http://127.0.0.1:3000"
 
@@ -42,6 +51,7 @@ def health():
         "data_mode": summary["data_mode"],
         "locations": summary["locations"],
         "pending_approval": summary["pending_approval"],
+        "google_ai": google_services_status(),
     }
 def store_reading(t: TelemetryIn, synthetic: bool = False):
     pri=calculate_pri(t); store.add_telemetry(t,pri,synthetic=synthetic); store.log("Ingestion Engine",f"Received {t.source} telemetry for {t.sector_id}; calculated PRI {pri}."); return {"accepted":True,"pri":pri,"severity":severity(pri)}
@@ -117,3 +127,56 @@ def decide_work_order(order_id: int, decision: OrderDecision):
 def activity(): return [dict(x) for x in store.activities()]
 @app.get("/api/v1/work-orders")
 def work_orders(): return [dict(x) for x in store.orders()]
+
+# ── Google AI Endpoints ────────────────────────────────────────────────────
+@app.post("/api/v1/ai/analyze")
+async def ai_analyze(req: AIAnalyzeRequest):
+    """Gemini 2.0 Flash: Generate AI risk narrative + multilingual advisories for a sector."""
+    rows = [r for r in store.latest_points() if r["sector_id"] == req.sector_id]
+    if not rows:
+        raise HTTPException(404, "No telemetry for this sector")
+    point = rows[0]
+    pri   = point["pri"]
+    level = severity(pri)
+    try:
+        import json as _json
+        payload = _json.loads(point["payload"])
+        components = {k: payload.get(k, 0) for k in
+                      ["temperature", "standing_water_hours", "organic_waste_kg",
+                       "sewer_level_pct", "ph_deviation", "clog_probability"]}
+    except Exception:
+        components = {"standing_water": pri * 0.6, "temperature": pri * 0.3}
+    narrative_result = await generate_risk_narrative(
+        req.sector_id, point["district"], pri, level, components
+    )
+    advisory_result  = await generate_multilingual_advisories(
+        point["district"], pri, level, components
+    )
+    store.log("Gemini AI Advisor",
+              f"On-demand analysis for {req.sector_id}: {narrative_result['narrative'][:100]}…")
+    return {
+        "sector_id":    req.sector_id,
+        "district":     point["district"],
+        "pri":          pri,
+        "severity":     level,
+        "narrative":    narrative_result,
+        "advisories":   advisory_result,
+        "google_ai":    google_services_status(),
+    }
+
+@app.post("/api/v1/ai/chat")
+async def ai_chat(req: AIChatRequest):
+    """Gemini 2.0 Flash: Conversational Q&A over the live risk snapshot."""
+    if not req.question.strip():
+        raise HTTPException(400, "Question cannot be empty")
+    context = [{"sector_id": r["sector_id"], "district": r["district"],
+                "pri": r["pri"], "severity": severity(r["pri"]),
+                "source": r["source"]} for r in store.latest_points()]
+    result = await chat_with_urbanguard(req.question, context)
+    store.log("Gemini AI Chat", f"Q: {req.question[:80]}… → {result['answer'][:80]}…")
+    return result
+
+@app.get("/api/v1/ai/status")
+def ai_status():
+    """Returns Google AI / Gemini / Cloud Run configuration status."""
+    return google_services_status()

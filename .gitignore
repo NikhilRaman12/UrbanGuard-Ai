@@ -8,3 +8,5 @@ streamlit/__pycache__/
 streamlit/.streamlit/secrets.toml
 backend/*.log
 frontend/*.log
+__pycache__/
+*.pyc
